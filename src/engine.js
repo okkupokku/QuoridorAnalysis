@@ -253,6 +253,34 @@ var Quor = (function () {
     return e;
   }
 
+  // Best move for the side to move in the position after n moves (null if the game is over).
+  function bestFrom(moves, n, depth) {
+    var s = replay(moves, n);
+    if (winner(s) >= 0) return null;
+    var root = rootSearch(s, depth, depth >= 4 ? 8 : 10);
+    if (!root.move) return null;
+    var wp = winProb(root.value);
+    return { move: fmt(root.move), player: s.turn, wpWhite: s.turn === 0 ? wp : 1 - wp };
+  }
+
+  // The engine playing both sides from the position after n moves; list of move strings.
+  function bestLine(moves, n, depth, max) {
+    var s = replay(moves, n), limit = depth >= 4 ? 8 : 10, line = [];
+    while (line.length < max && winner(s) < 0) {
+      var r = rootSearch(s, depth, limit);
+      if (!r.move) break;
+      line.push(fmt(r.move));
+      doMove(s, { t: r.move.t, x: r.move.x, y: r.move.y });
+    }
+    return line;
+  }
+
+  // Everything the live panel needs after a move: rating of the last move + best next move.
+  function liveInfo(moves, depth) {
+    var n = moves.length;
+    return { entry: n ? analyzePly(moves, n - 1, depth) : null, next: bestFrom(moves, n, depth) };
+  }
+
   // Full-game analysis. Returns one entry per ply plus the white win-probability series.
   function analyze(moves, depth, onProgress) {
     depth = depth || 3;
@@ -274,7 +302,7 @@ var Quor = (function () {
   return {
     LET: LET, newState: newState, clone: clone, blocked: blocked, pawnMoves: pawnMoves,
     wallProblem: wallProblem, doMove: doMove, undoMove: undoMove, fmt: fmt, parse: parse,
-    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, goalRow: goalRow
+    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, bestFrom: bestFrom, bestLine: bestLine, liveInfo: liveInfo, goalRow: goalRow
   };
 })();
 if (typeof module !== 'undefined') module.exports = Quor;

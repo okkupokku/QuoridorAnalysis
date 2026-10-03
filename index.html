@@ -19,7 +19,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;touch-action:manipulation}
 body{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
-main{max-width:520px;margin:0 auto;padding:12px 16px 20px}
+main{max-width:520px;margin:0 auto;padding:8px 16px 20px}
 h1{font-size:18px;margin:2px 0 10px}
 h2{font-size:15px;margin:18px 0 8px}
 .hidden{display:none!important}
@@ -35,20 +35,37 @@ nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);b
 nav button{flex:1;border:0;border-radius:0;background:none;min-height:56px;font-size:13px;color:var(--mute)}
 nav button.on{color:var(--accent);font-weight:700}
 nav button span{display:block;font-size:20px;line-height:1.1}
-.players{display:flex;gap:8px;margin-bottom:10px}
-.pl{flex:1;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;border:2px solid transparent;background:var(--card)}
+.players{display:flex;gap:6px;margin-bottom:6px}
+.pl{flex:1;display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:10px;border:2px solid transparent;background:var(--card);min-width:0}
 .pl.turn{border-color:var(--accent)}
-.dot{width:20px;height:20px;border-radius:50%;border:2px solid #333;flex:none}
+.dot{width:16px;height:16px;border-radius:50%;border:2px solid #333;flex:none}
 .dot.w{background:#fbfaf6}.dot.b{background:#26252a;border-color:#000}
-.pl b{display:block;font-size:14px;line-height:1.1}
-.pl small{color:var(--mute)}
+.pl b{font-size:14px;line-height:1.1}
+.pl small{color:var(--mute);margin-left:auto;font-size:12px;white-space:nowrap}
 svg.board{width:100%;height:auto;display:block;touch-action:manipulation;user-select:none;-webkit-user-select:none}
-.msg{min-height:22px;margin:8px 2px;color:var(--mute);font-size:14px;text-align:center}
+.bw{display:flex;gap:6px;align-items:stretch}
+.bw .bd{flex:1;min-width:0}
+.evcol{position:relative;width:24px;flex:none}
+.evbar{position:absolute;left:0;right:0;top:.7%;bottom:7.5%;border-radius:7px;overflow:hidden;background:#2b2a30;border:1px solid var(--line)}
+.evbar.dim{opacity:.55}
+.evbar .f{position:absolute;left:0;right:0;background:#fbfaf6;transition:height .35s}
+.evbar span{position:absolute;left:0;right:0;text-align:center;font-size:10px;font-weight:700;line-height:1;color:#fff;mix-blend-mode:difference}
+.ctl{display:flex;gap:6px;margin-top:6px}
+.ctl button{flex:1;min-width:0;padding:6px 2px;min-height:42px;font-size:14px;white-space:nowrap}
+.ctl button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.livecard{margin-top:6px;font-size:14px}
+.ln{margin:2px 0}
+.btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center}
+button.sm{min-height:36px;padding:5px 10px;font-size:14px}
+.opts{display:flex;flex-direction:column;gap:2px}
+.opt{display:flex;gap:10px;align-items:center;min-height:36px;font-size:15px}
+.opt input{width:20px;height:20px;flex:none;accent-color:var(--accent)}
+.msg{min-height:18px;margin:5px 2px 0;color:var(--mute);font-size:13px;text-align:center}
 .msg.bad{color:var(--danger)}
 .seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
 .seg button{border:0;border-radius:0;flex:1;background:none}
 .seg button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
-.banner{background:var(--accent);color:var(--accent-ink);border-radius:14px;padding:12px;text-align:center;font-weight:600;margin-bottom:10px}
+.banner{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:6px 10px;text-align:center;font-weight:600;margin-bottom:6px;font-size:14px}
 .banner button{margin-top:8px;width:100%}
 .stat{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .chipc{font-size:12px;padding:2px 8px;border-radius:99px;color:#fff;white-space:nowrap}
@@ -346,6 +363,34 @@ var Quor = (function () {
     return e;
   }
 
+  // Best move for the side to move in the position after n moves (null if the game is over).
+  function bestFrom(moves, n, depth) {
+    var s = replay(moves, n);
+    if (winner(s) >= 0) return null;
+    var root = rootSearch(s, depth, depth >= 4 ? 8 : 10);
+    if (!root.move) return null;
+    var wp = winProb(root.value);
+    return { move: fmt(root.move), player: s.turn, wpWhite: s.turn === 0 ? wp : 1 - wp };
+  }
+
+  // The engine playing both sides from the position after n moves; list of move strings.
+  function bestLine(moves, n, depth, max) {
+    var s = replay(moves, n), limit = depth >= 4 ? 8 : 10, line = [];
+    while (line.length < max && winner(s) < 0) {
+      var r = rootSearch(s, depth, limit);
+      if (!r.move) break;
+      line.push(fmt(r.move));
+      doMove(s, { t: r.move.t, x: r.move.x, y: r.move.y });
+    }
+    return line;
+  }
+
+  // Everything the live panel needs after a move: rating of the last move + best next move.
+  function liveInfo(moves, depth) {
+    var n = moves.length;
+    return { entry: n ? analyzePly(moves, n - 1, depth) : null, next: bestFrom(moves, n, depth) };
+  }
+
   // Full-game analysis. Returns one entry per ply plus the white win-probability series.
   function analyze(moves, depth, onProgress) {
     depth = depth || 3;
@@ -367,7 +412,7 @@ var Quor = (function () {
   return {
     LET: LET, newState: newState, clone: clone, blocked: blocked, pawnMoves: pawnMoves,
     wallProblem: wallProblem, doMove: doMove, undoMove: undoMove, fmt: fmt, parse: parse,
-    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, goalRow: goalRow
+    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, bestFrom: bestFrom, bestLine: bestLine, liveInfo: liveInfo, goalRow: goalRow
   };
 })();
 if (typeof module !== 'undefined') module.exports = Quor;
@@ -629,6 +674,34 @@ var Quor = (function () {
     return e;
   }
 
+  // Best move for the side to move in the position after n moves (null if the game is over).
+  function bestFrom(moves, n, depth) {
+    var s = replay(moves, n);
+    if (winner(s) >= 0) return null;
+    var root = rootSearch(s, depth, depth >= 4 ? 8 : 10);
+    if (!root.move) return null;
+    var wp = winProb(root.value);
+    return { move: fmt(root.move), player: s.turn, wpWhite: s.turn === 0 ? wp : 1 - wp };
+  }
+
+  // The engine playing both sides from the position after n moves; list of move strings.
+  function bestLine(moves, n, depth, max) {
+    var s = replay(moves, n), limit = depth >= 4 ? 8 : 10, line = [];
+    while (line.length < max && winner(s) < 0) {
+      var r = rootSearch(s, depth, limit);
+      if (!r.move) break;
+      line.push(fmt(r.move));
+      doMove(s, { t: r.move.t, x: r.move.x, y: r.move.y });
+    }
+    return line;
+  }
+
+  // Everything the live panel needs after a move: rating of the last move + best next move.
+  function liveInfo(moves, depth) {
+    var n = moves.length;
+    return { entry: n ? analyzePly(moves, n - 1, depth) : null, next: bestFrom(moves, n, depth) };
+  }
+
   // Full-game analysis. Returns one entry per ply plus the white win-probability series.
   function analyze(moves, depth, onProgress) {
     depth = depth || 3;
@@ -650,7 +723,7 @@ var Quor = (function () {
   return {
     LET: LET, newState: newState, clone: clone, blocked: blocked, pawnMoves: pawnMoves,
     wallProblem: wallProblem, doMove: doMove, undoMove: undoMove, fmt: fmt, parse: parse,
-    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, goalRow: goalRow
+    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, bestFrom: bestFrom, bestLine: bestLine, liveInfo: liveInfo, goalRow: goalRow
   };
 })();
 if (typeof module !== 'undefined') module.exports = Quor;
@@ -664,7 +737,9 @@ var $ = function(s){return document.querySelector(s);};
 
 /* ---------------- storage ---------------- */
 var KEY = 'quoridor-review-v1';
-var store = { games: [], cur: null, depth: 4, live: false, depthChosen: false };
+var OPT_DEFAULT = { eval:1, bar:1, pct:1, prev:0, prevBtn:1, next:0, nextBtn:1, anim:0, speed:0 };
+var store = { games: [], cur: null, depth: 4, live: false, depthChosen: false, opts: {}, animMs: 1000 };
+function ensureOpts(){ store.opts = store.opts || {}; for(var k in OPT_DEFAULT) if(store.opts[k]===undefined) store.opts[k]=OPT_DEFAULT[k]; if(!store.animMs) store.animMs=1000; }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(store)); }catch(e){} }
 function load(){ try{ var j = JSON.parse(localStorage.getItem(KEY)); if(j && j.games){ store = j; if(store.depthChosen===undefined) store.depthChosen = store.games.some(function(g){return g.analysis;}); } }catch(e){} }
 function stamp(){ var d=new Date(), p=function(n){return (n<10?'0':'')+n;}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
@@ -679,7 +754,7 @@ function cur(){
 function analysisOf(g){ return g.analysis && g.analysis.key === g.moves.join(' ') && g.analysis.depth === store.depth ? g.analysis : null; }
 
 /* ---------------- ui state ---------------- */
-var ui = { tab:'rec', mode:'move', preview:null, flip:false, msg:'', k:0, view:'after', running:false, prog:0, importErr:'', confirmNew:false };
+var ui = { tab:'rec', mode:'move', preview:null, flip:false, msg:'', k:0, view:'after', running:false, prog:0, importErr:'', confirmNew:false, peek:null, anim:null, lastWp:null };
 
 /* ---------------- helpers ---------------- */
 function wallsAt(moves,k){
@@ -744,58 +819,154 @@ function svgPoint(svg,e,flip){
 }
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
+/* ---------------- shared analysis display ---------------- */
+var OPTS=[['eval','Move rating (best, good, mistake…)'],['bar','Win chance bar'],['pct','Win chance percentage'],['prev','Best previous move (text)'],['prevBtn','Button: show best previous move'],['next','Best next move (text)'],['nextBtn','Button: show best next move'],['anim','Button: play out the best line from here'],['speed','Animation speed control']];
+function optsHtml(){
+  var o=store.opts;
+  return '<div class="opts">'+OPTS.map(function(x){return '<label class="opt"><input type="checkbox" data-opt="'+x[0]+'"'+(o[x[0]]?' checked':'')+'><span>'+x[1]+'</span></label>';}).join('')+'</div>';
+}
+function speedHtml(){
+  return '<div class="row" style="margin-top:6px"><label for="animMs" class="note" style="flex:none">Animation speed</label><select id="animMs">'+
+    [[2000,'Slow (2 s per move)'],[1000,'Normal (1 s)'],[500,'Fast (0.5 s)'],[250,'Very fast (0.25 s)']].map(function(o){return '<option value="'+o[0]+'"'+(store.animMs===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select></div>';
+}
+function winProbOf(v){ if(v>900)return 1; if(v<-900)return 0; return 1/(1+Math.exp(-v/2.5)); }
+// ctx: {n: moves played, e: rating entry of the last move, next: best next move, wp: white win chance, pending}
+function ctxLive(){
+  var g=cur(), n=g.moves.length, c=liveCache[liveKey(g,n)];
+  if(!c) return { n:n, e:null, next:null, wp:ui.lastWp==null?.5:ui.lastWp, pending:true };
+  var wp=c.entry?c.entry.wpWhite:(c.next?c.next.wpWhite:.5);
+  ui.lastWp=wp;
+  return { n:n, e:c.entry, next:c.next, wp:wp, pending:false };
+}
+function ctxAna(res,k){
+  var ent=res.entries, e=k>0?ent[k-1]:null, nx=null;
+  if(k<ent.length){ var x=ent[k], w=winProbOf(x.bestVal); nx={move:x.best,player:x.player,wpWhite:x.player===0?w:1-w}; }
+  return { n:k, e:e, next:nx, wp:res.series[k], pending:false };
+}
+function evBarHtml(c){
+  var w=Math.round(c.wp*100), f=ui.flip, o=store.opts;
+  return '<div class="evbar'+(c.pending?' dim':'')+'"><div class="f" style="'+(f?'top:0':'bottom:0')+';height:'+w+'%"></div>'+
+    (o.pct?'<span style="'+(f?'top':'bottom')+':3px">'+w+'</span><span style="'+(f?'bottom':'top')+':3px">'+(100-w)+'</span>':'')+'</div>';
+}
+function peekBtn(kind,label){
+  var on=ui.peek===kind;
+  return '<button class="sm'+(on?' primary':'')+'" data-peek="'+kind+'">'+(on?'✕ Hide':label)+'</button>';
+}
+function infoHtml(c){
+  var o=store.opts, e=c.e, h='', w=Math.round(c.wp*100);
+  if(c.pending) h+='<div class="ln note">Analyzing…</div>';
+  else {
+    var pctTxt=(!o.bar&&o.pct)?' <span class="note">White '+w+'% · Black '+(100-w)+'%</span>':'';
+    if(e) h+='<div class="ln"><b>'+(Math.floor(e.ply/2)+1)+'. '+NAME[e.player]+' '+moveText(e.move)+'</b>'+(o.eval?' <span class="chipc c-'+e.cls+'">'+CLS_LABEL[e.cls]+'</span>':'')+pctTxt+'</div>';
+    else h+='<div class="ln note">Starting position.'+pctTxt+'</div>';
+    if(e&&o.prev) h+=e.best!==e.move?'<div class="ln">Best previous move: <b>'+moveText(e.best)+'</b></div>':'<div class="ln note">The previous move was the best one.</div>';
+    if(o.next&&c.next) h+='<div class="ln">Best next move ('+NAME[c.next.player]+'): <b>'+moveText(c.next.move)+'</b></div>';
+  }
+  var b='';
+  if(!c.pending){
+    if(e&&o.prevBtn&&e.best!==e.move) b+=peekBtn('prev','◀ Best previous move');
+    if(o.nextBtn&&c.next) b+=peekBtn('next','Best next move ▶');
+  }
+  if(o.anim) b+=ui.anim?'<button class="sm primary" data-anim="1">■ Stop</button>':'<button class="sm" data-anim="1">▶ Play best line</button>';
+  if(b) h+='<div class="btns">'+b+'</div>';
+  if(ui.anim) h+='<div class="ln note">'+(ui.anim.line?'Best line: move '+ui.anim.i+' of '+ui.anim.line.length+(ui.anim.i?' ('+ui.anim.line[ui.anim.i-1]+')':''):'Calculating best line…')+'</div>';
+  if(ui.peek==='prev') h+='<div class="ln note">Orange: played · Blue: better</div>';
+  if(ui.peek==='next') h+='<div class="ln note">Blue: best next move</div>';
+  if(o.speed) h+=speedHtml();
+  return h;
+}
+// What the board should show: current position, previous position with suggestion, or animation
+function viewData(moves,k,c){
+  var a=ui.anim, list=moves, n=k, cells=[], wm=[];
+  var mk=function(m,color,op,dash,w){ if(m.t===0) cells.push({x:m.x,y:m.y,color:color,w:w||1.8,dash:dash}); else wm.push({t:m.t,c:m.x,r:m.y,color:color,op:op,dash:dash}); };
+  if(a&&a.line){ list=a.base.concat(a.line.slice(0,a.i)); n=list.length; if(n>0) mk(Q.parse(list[n-1]),'#f0a202',0); }
+  else if(ui.peek==='prev'&&k>0&&c&&c.e){
+    n=k-1; mk(Q.parse(moves[k-1]),'#f0a202',.75);
+    if(c.e.best!==c.e.move) mk(Q.parse(c.e.best),'#2a7de1',.9,true);
+  } else {
+    if(n>0) mk(Q.parse(list[n-1]),'#f0a202',0);
+    if(ui.peek==='next'&&c&&c.next) mk(Q.parse(c.next.move),'#2a7de1',.9,true);
+  }
+  return { state:Q.replay(list,n), walls:wallsAt(list,n), cells:cells, wm:wm, locked:!!(a||ui.peek==='prev') };
+}
+function stopAnim(){ if(ui.anim){ clearInterval(ui.anim.timer); if(ui.anim.h) ui.anim.h.stop(); ui.anim=null; } }
+function resetView(){ ui.peek=null; stopAnim(); }
+function renderCurrent(){ if(ui.tab==='rec') renderRec(); else if(ui.tab==='ana') renderAna(); }
+function startAnim(){
+  var g=cur(), base=ui.tab==='ana'?g.moves.slice(0,ui.k):g.moves.slice();
+  if(Q.winner(Q.replay(base))>=0){ ui.msg='The game is already decided.'; renderCurrent(); return; }
+  ui.peek=null;
+  var a={base:base,line:null,i:0,timer:null,h:null}; ui.anim=a;
+  var tick=function(){ if(ui.anim!==a){ clearInterval(a.timer); return; } a.i++; if(a.i>=a.line.length) clearInterval(a.timer); renderCurrent(); };
+  var go=function(line){ if(ui.anim!==a) return; a.line=line; a.i=0; renderCurrent(); a.timer=setInterval(tick,store.animMs); };
+  a.tick=tick;
+  a.h=spawn({kind:'line',moves:base,depth:store.depth,max:60},function(d){ if(d.line){ a.h.stop(); go(d.line); } },
+    function(){ setTimeout(function(){ go(Q.bestLine(base,base.length,store.depth,60)); },30); });
+  renderCurrent();
+}
+function analysisBtn(t){
+  if(t.dataset.peek){ stopAnim(); ui.peek=ui.peek===t.dataset.peek?null:t.dataset.peek; renderCurrent(); return true; }
+  if(t.dataset.anim){ if(ui.anim){ stopAnim(); renderCurrent(); } else startAnim(); return true; }
+  return false;
+}
+
 /* ---------------- record view ---------------- */
 function renderRec(){
-  var g=cur(), st=Q.replay(g.moves), win=Q.winner(st);
-  var h='<h1>Play or record</h1>';
-  if(win>=0){
-    h+='<div class="banner">'+NAME[win]+' wins in '+Math.ceil(g.moves.length/2)+' moves!<button class="primary" id="goAna" style="background:#fff;color:#1f1d1a">Analyze this game</button></div>';
-  }
+  var g=cur(), win=Q.winner(Q.replay(g.moves));
+  var live=store.live&&store.depthChosen, c=live?ctxLive():null;
+  var vd=viewData(g.moves,g.moves.length,c), st=vd.state, realSt=Q.replay(g.moves);
+  var h='';
+  if(win>=0) h+='<div class="banner">'+NAME[win]+' wins in '+Math.ceil(g.moves.length/2)+' moves</div>';
   h+='<div class="players">';
   [0,1].forEach(function(p){
-    h+='<div class="pl'+(win<0&&st.turn===p?' turn':'')+'"><span class="dot '+(p?'b':'w')+'"></span><div><b>'+NAME[p]+'</b><small>'+st.wl[p]+' walls left</small></div></div>';
+    h+='<div class="pl'+(win<0&&realSt.turn===p?' turn':'')+'"><span class="dot '+(p?'b':'w')+'"></span><b>'+NAME[p]+'</b><small>'+realSt.wl[p]+' walls</small></div>';
   });
   h+='</div>';
   var hints=[], preview=null;
-  if(win<0 && ui.mode==='move') hints=Q.pawnMoves(st,st.turn);
-  if(win<0 && ui.mode==='wall' && ui.preview){
-    preview={t:ui.preview.t,c:ui.preview.c,r:ui.preview.r,problem:Q.wallProblem(st,ui.preview.t,ui.preview.c,ui.preview.r)};
+  if(win<0&&!vd.locked&&ui.mode==='move') hints=Q.pawnMoves(realSt,realSt.turn);
+  if(win<0&&!vd.locked&&ui.mode==='wall'&&ui.preview){
+    preview={t:ui.preview.t,c:ui.preview.c,r:ui.preview.r,problem:Q.wallProblem(realSt,ui.preview.t,ui.preview.c,ui.preview.r)};
   }
-  var last=g.moves.length?Q.parse(g.moves[g.moves.length-1]):null;
-  var cells=(last&&last.t===0)?[{x:last.x,y:last.y,color:'var(--amber)'}]:[];
-  var wm=[]; var walls=wallsAt(g.moves,g.moves.length);
-  if(last&&last.t>0) wm.push({t:last.t,c:last.x,r:last.y,color:'#f0a202',op:.0});
-  h+='<div id="boardWrap">'+drawBoard({state:st,walls:walls,flip:ui.flip,hints:hints,preview:preview,cells:cells,wallMarks:wm})+'</div>';
+  h+='<div class="bw"><div class="bd" id="boardWrap">'+drawBoard({state:st,walls:vd.walls,flip:ui.flip,hints:hints,preview:preview,cells:vd.cells,wallMarks:vd.wm})+'</div>'+
+     (live&&store.opts.bar?'<div class="evcol" id="evslot">'+evBarHtml(c)+'</div>':'')+'</div>';
   var msg=ui.msg, bad=false;
-  if(win<0){
-    if(ui.mode==='move') msg=msg||('Tap a green dot to move '+NAME[st.turn]+'.');
-    else if(!ui.preview) msg=msg||'Tap the board where the wall goes (on the line between squares).';
+  if(vd.locked) msg='Showing a preview. Tap the board or a button to return to the game.';
+  else if(win<0){
+    if(ui.mode==='move') msg=msg||('Tap a green dot to move '+NAME[realSt.turn]+'.');
+    else if(!ui.preview) msg=msg||'Tap the board where the wall goes.';
     else if(preview.problem){ msg=preview.problem+' — tap elsewhere or rotate.'; bad=true; }
     else msg='Wall '+Q.fmt({t:ui.preview.t,x:ui.preview.c,y:ui.preview.r})+'. Confirm, rotate, or tap elsewhere.';
   }
   h+='<div class="msg'+(bad?' bad':'')+'">'+esc(msg)+'</div>';
-  if(win<0){
-    h+='<div class="seg" style="margin-bottom:8px"><button data-mode="move" class="'+(ui.mode==='move'?'on':'')+'">Move pawn</button><button data-mode="wall" class="'+(ui.mode==='wall'?'on':'')+'"'+(st.wl[st.turn]<=0?' disabled':'')+'>Place wall</button></div>';
-    if(ui.mode==='wall'){
-      h+='<div class="row" style="margin-bottom:8px"><button id="rot"'+(ui.preview?'':' disabled')+'>⟳ Rotate</button><button id="okWall" class="primary"'+(ui.preview&&!preview.problem?'':' disabled')+'>Confirm wall</button></div>';
-    }
+  h+='<div class="ctl"><button data-mode="move" class="'+(ui.mode==='move'?'on':'')+'"'+(win>=0?' disabled':'')+'>Move pawn</button><button data-mode="wall" class="'+(ui.mode==='wall'?'on':'')+'"'+(win>=0||realSt.wl[realSt.turn]<=0?' disabled':'')+'>Place wall</button><button id="undo"'+(g.moves.length?'':' disabled')+'>↶ Undo</button><button id="flip">⇅ Flip</button></div>';
+  if(win<0&&ui.mode==='wall'){
+    h+='<div class="ctl"><button id="rot"'+(ui.preview?'':' disabled')+'>⟳ Rotate</button><button id="okWall" class="primary"'+(ui.preview&&!preview.problem?'':' disabled')+'>Confirm wall</button></div>';
   }
-  h+='<div class="row"><button id="undo"'+(g.moves.length?'':' disabled')+'>↶ Undo</button><button id="flip">⇅ Flip board</button></div>';
+  if(live) h+='<div id="liveCard" class="livecard">'+infoHtml(c)+'</div>';
+  // --- below the fold ---
   if(ui.confirmNew){
-    h+='<div class="card" style="margin-top:8px"><b>Start a new game?</b><p style="margin:4px 0 10px">The board resets. This game ('+g.moves.length+' moves) stays saved under Games.</p><div class="row"><button id="newYes" class="primary">Start new game</button><button id="newNo">Keep playing</button></div></div>';
+    h+='<div class="card" style="margin-top:14px"><b>Start a new game?</b><p style="margin:4px 0 10px">The board resets. This game ('+g.moves.length+' moves) stays saved under Games.</p><div class="row"><button id="newYes" class="primary">Start new game</button><button id="newNo">Keep playing</button></div></div>';
   } else {
-    h+='<div class="row" style="margin-top:8px">'+(win<0&&g.moves.length>1?'<button id="goAna2">Analyze game</button>':'')+'<button id="newGame">＋ New game</button></div>';
+    h+='<div class="row" style="margin-top:14px"><button id="newGame">＋ New game</button></div>';
   }
   h+='<div class="card" style="margin-top:12px"><div class="row"><div style="flex:2"><b>Analyze while playing</b><div class="note">Rates each move right after it is played.</div></div><div class="seg" style="flex:1.2"><button data-live="0" class="'+(store.live?'':'on')+'">Off</button><button data-live="1" class="'+(store.live?'on':'')+'">On</button></div></div>';
   if(store.live&&!store.depthChosen){
     h+='<p class="note" style="margin:10px 0 6px">Choose how deeply the engine searches. You only choose once; you can change it later.</p><div class="row"><select id="depthPick">'+depthOptions(store.depth)+'</select><button id="liveStart" class="primary">Start</button></div>';
   } else if(store.live){
-    h+='<div id="liveCard" style="margin-top:10px">'+liveHtml()+'</div><div class="row" style="margin-top:10px"><label for="depthRec" class="note" style="flex:none">Strength</label><select id="depthRec">'+depthOptions(store.depth)+'</select></div>';
+    h+='<div class="row" style="margin-top:10px"><label for="depthRec" class="note" style="flex:none">Strength</label><select id="depthRec">'+depthOptions(store.depth)+'</select></div>';
   }
   h+='</div>';
+  h+='<div class="card" style="margin-top:12px"><b>What to show</b><div class="note" style="margin-bottom:4px">Applies here and on the Analyze tab.</div>'+optsHtml()+'</div>';
   h+='<p class="note" style="margin-top:12px">Moves so far: '+(g.moves.length?esc(movesLine(g.moves)):'none yet')+'</p>';
   $('#v-rec').innerHTML=h;
   liveEnsure();
+}
+function updateLive(){
+  if(ui.tab!=='rec'||!(store.live&&store.depthChosen)) return;
+  if(ui.anim||ui.peek){ renderRec(); return; }
+  var c=ctxLive(), lc=$('#liveCard'), ev=$('#evslot');
+  if(lc) lc.innerHTML=infoHtml(c);
+  if(ev) ev.innerHTML=evBarHtml(c);
 }
 function depthOptions(sel){
   return [[3,'Quick'],[4,'Normal'],[5,'Deep'],[6,'Very deep (slow)']].map(function(o){return '<option value="'+o[0]+'"'+(sel===o[0]?' selected':'')+'>'+o[1]+' (depth '+o[0]+')</option>';}).join('');
@@ -803,9 +974,10 @@ function depthOptions(sel){
 function movesLine(ms){
   var out=[]; for(var i=0;i<ms.length;i++){ if(i%2===0) out.push((i/2+1)+'.'); out.push(ms[i]); } return out.join(' ');
 }
-function afterChange(){ ui.preview=null; ui.msg=''; save(); renderRec(); }
+function afterChange(){ resetView(); ui.preview=null; ui.msg=''; save(); renderRec(); }
 function onBoardClick(e){
   var svg=e.target.closest('svg.board'); if(!svg) return;
+  if(ui.anim||ui.peek==='prev'){ resetView(); renderRec(); return; }
   var g=cur(), st=Q.replay(g.moves); if(Q.winner(st)>=0) return;
   var q=svgPoint(svg,e,ui.flip);
   if(ui.mode==='move'){
@@ -817,13 +989,15 @@ function onBoardClick(e){
     var c=clamp(Math.round((q.x-(S+G/2))/P),0,7);
     var r=clamp(Math.round(8-(q.y+G/2)/P),0,7);
     var dx=q.x-(c*P+S+G/2), dy=q.y-((8-r)*P-G/2);
-    ui.preview={t:Math.abs(dx)>=Math.abs(dy)?1:2,c:c,r:r}; ui.msg=''; renderRec();
+    ui.peek=null; ui.preview={t:Math.abs(dx)>=Math.abs(dy)?1:2,c:c,r:r}; ui.msg=''; renderRec();
   }
 }
 function recClicks(e){
   var t=e.target.closest('button');
   if(!t){ onBoardClick(e); return; }
+  if(analysisBtn(t)) return;
   var g=cur();
+  if(t.id!=='flip'&&(ui.anim||ui.peek)) resetView();
   if(t.dataset.mode){ ui.mode=t.dataset.mode; ui.preview=null; ui.msg=''; renderRec(); }
   else if(t.id==='undo'){ g.moves.pop(); afterChange(); }
   else if(t.id==='flip'){ ui.flip=!ui.flip; renderRec(); }
@@ -832,7 +1006,6 @@ function recClicks(e){
     var p=ui.preview, st=Q.replay(g.moves);
     if(!Q.wallProblem(st,p.t,p.c,p.r)){ g.moves.push(Q.fmt({t:p.t,x:p.c,y:p.r})); ui.mode='move'; afterChange(); }
   }
-  else if(t.id==='goAna'||t.id==='goAna2'){ openAna(); }
   else if(t.id==='newGame'){ if(g.moves.length){ ui.confirmNew=true; } else { ui.msg='The board is already empty.'; } renderRec(); }
   else if(t.id==='newNo'){ ui.confirmNew=false; renderRec(); }
   else if(t.id==='newYes'){ newGame(); ui.confirmNew=false; ui.mode='move'; ui.preview=null; ui.msg=''; renderRec(); window.scrollTo(0,0); }
@@ -841,10 +1014,10 @@ function recClicks(e){
 }
 
 /* ---------------- analysis ---------------- */
-var worker=null, liveCache={}, liveH=null, liveBusy=null;
+var liveCache={}, liveH=null, liveBusy=null;
 function workerSrc(){
   return document.getElementById('engine-src').textContent+
-    '\nonmessage=function(e){var d=e.data;if(d.ply!==undefined){postMessage({entry:Quor.analyzePly(d.moves,d.ply,d.depth)});return;}var r=Quor.analyze(d.moves,d.depth,function(i,n){postMessage({p:i,n:n});});postMessage({done:r});};';
+    '\nonmessage=function(e){var d=e.data;if(d.kind==="live"){postMessage({live:Quor.liveInfo(d.moves,d.depth)});return;}if(d.kind==="line"){postMessage({line:Quor.bestLine(d.moves,d.moves.length,d.depth,d.max)});return;}var r=Quor.analyze(d.moves,d.depth,function(i,n){postMessage({p:i,n:n});});postMessage({done:r});};';
 }
 function spawn(msg,onMsg,fallback){
   var w=null;
@@ -873,28 +1046,17 @@ function runAnalysis(){
 function liveKey(g,n){ return store.depth+'|'+g.moves.slice(0,n).join(' '); }
 function liveEnsure(){
   var g=cur(), n=g.moves.length;
-  if(!store.live||!store.depthChosen||!n) return;
+  if(!store.live||!store.depthChosen) return;
   var key=liveKey(g,n); if(liveCache[key]||liveBusy===key) return;
   if(liveH) liveH.stop();
   liveBusy=key;
   var moves=g.moves.slice(), depth=store.depth;
-  var done=function(entry){
-    liveCache[key]=entry; if(liveBusy===key) liveBusy=null;
-    var lc=$('#liveCard'); if(lc&&liveKey(cur(),cur().moves.length)===key) lc.innerHTML=liveHtml();
+  var done=function(info){
+    liveCache[key]=info; if(liveBusy===key) liveBusy=null;
+    if(liveKey(cur(),cur().moves.length)===key) updateLive();
   };
-  liveH=spawn({moves:moves,ply:n-1,depth:depth},function(d){ if(d.entry){ liveH.stop(); done(d.entry); } },
-    function(){ setTimeout(function(){ done(Q.analyzePly(moves,n-1,depth)); },30); });
-}
-function liveHtml(){
-  var g=cur(), n=g.moves.length;
-  if(!n) return '<span class="note">Make a move to see its rating.</span>';
-  var e=liveCache[liveKey(g,n)];
-  if(!e) return '<span class="note">Analyzing…</span>';
-  var w=pct(e.wpWhite);
-  var h='<b>'+(Math.floor((n-1)/2)+1)+'. '+NAME[e.player]+' '+moveText(e.move)+'</b> <span class="chipc c-'+e.cls+'">'+CLS_LABEL[e.cls]+'</span>';
-  if(e.best!==e.move) h+='<div class="hint" style="margin-top:4px">Better was <b>'+moveText(e.best)+'</b> (win chance for '+NAME[e.player]+' '+pct(e.player===0?e.wpBeforeWhite:1-e.wpBeforeWhite)+'% instead of '+pct(e.player===0?e.wpWhite:1-e.wpWhite)+'%).</div>';
-  h+='<div class="wbar"><div style="width:'+w+'%"></div></div><div class="wl"><span>White '+w+'%</span><span>Black '+(100-w)+'%</span></div>';
-  return h;
+  liveH=spawn({kind:'live',moves:moves,depth:depth},function(d){ if(d.live){ liveH.stop(); done(d.live); } },
+    function(){ setTimeout(function(){ done(Q.liveInfo(moves,depth)); },30); });
 }
 function turningPoint(a){
   // eventual winner: actual winner, else whoever the final evaluation favours
@@ -910,13 +1072,13 @@ function defaultSelection(res){
   return best>=0&&bd>=.1?best+1:res.entries.length;
 }
 function openTab(t){
-  ui.tab=t;
+  resetView(); ui.tab=t;
   ['rec','ana','games'].forEach(function(n){ $('#v-'+n).classList.toggle('hidden',n!==t); });
   document.querySelectorAll('nav button').forEach(function(b){ b.classList.toggle('on',b.dataset.tab===t); });
   if(t==='rec') renderRec(); if(t==='ana') renderAna(); if(t==='games') renderGames();
   window.scrollTo(0,0);
 }
-function openAna(){ var a=analysisOf(cur()); ui.k=a?defaultSelection(a.res):cur().moves.length; ui.view='after'; openTab('ana'); }
+function openAna(){ var a=analysisOf(cur()); ui.k=a?defaultSelection(a.res):cur().moves.length; openTab('ana'); }
 
 function graphSvg(a,k){
   var ser=a.res.series,n=ser.length-1,Wd=300,H=110,pad=6;
@@ -956,27 +1118,10 @@ function renderAna(){
   h+='<div class="legend"><span>Tap the graph or a move to jump</span></div>';
 
   // board
-  var k=ui.k, showBest=ui.view==='best'&&k>0, e=k>0?ent[k-1]:null;
-  var posK=showBest?k-1:k, st=Q.replay(g.moves,posK);
-  var cells=[], wm=[];
-  if(e){
-    var pm=Q.parse(e.move), bm=Q.parse(e.best), differs=e.move!==e.best;
-    if(pm.t===0) cells.push({x:pm.x,y:pm.y,color:'#f0a202',w:1.8}); else wm.push({t:pm.t,c:pm.x,r:pm.y,color:'#f0a202',op:showBest?.75:.0});
-    if(showBest&&differs){ if(bm.t===0) cells.push({x:bm.x,y:bm.y,color:'#2a7de1',w:1.8,dash:true}); else wm.push({t:bm.t,c:bm.x,r:bm.y,color:'#2a7de1',op:.9}); }
-  }
-  h+='<div style="margin-top:10px">'+drawBoard({state:st,walls:wallsAt(g.moves,posK),flip:ui.flip,cells:cells,wallMarks:wm})+'</div>';
-  if(e){
-    var ply=Math.floor((k-1)/2)+1;
-    h+='<div class="card hint" style="margin-top:8px"><b>'+ply+'. '+NAME[e.player]+' '+moveText(e.move)+'</b> <span class="chipc c-'+e.cls+'">'+CLS_LABEL[e.cls]+'</span><br>';
-    var before=pct(e.player===0?res.series[k-1]:1-res.series[k-1]);
-    h+='Win chance for '+NAME[e.player]+': '+pct(e.player===0?res.series[k]:1-res.series[k])+'%';
-    if(e.best!==e.move) h+=' (best was <b>'+moveText(e.best)+'</b> ≈ '+pct(winProbOf(e.bestVal))+'%)';
-    h+='</div>';
-    h+='<div class="row" style="margin-top:8px"><button id="prev">◀ Prev</button>'+(e.best!==e.move?'<button id="toggleBest" class="'+(showBest?'primary':'')+'" style="flex:1.6">'+(showBest?'Show played':'Better move?')+'</button>':'')+'<button id="next">Next ▶</button></div>';
-  } else {
-    h+='<div class="card hint" style="margin-top:8px">Starting position.</div><div class="row" style="margin-top:8px"><button id="prev" disabled>◀ Prev</button><button id="next">Next ▶</button></div>';
-  }
-  if(showBest&&e&&e.best!==e.move) h+='<div class="legend"><span><b style="background:#f0a202"></b>played</span><span><b style="background:#2a7de1"></b>better</span></div>';
+  var k=ui.k, c=ctxAna(res,k), vd=viewData(g.moves,k,c);
+  h+='<div class="bw" style="margin-top:10px"><div class="bd">'+drawBoard({state:vd.state,walls:vd.walls,flip:ui.flip,cells:vd.cells,wallMarks:vd.wm})+'</div>'+(store.opts.bar?'<div class="evcol">'+evBarHtml(c)+'</div>':'')+'</div>';
+  h+='<div class="card hint" style="margin-top:8px">'+infoHtml(c)+'</div>';
+  h+='<div class="ctl"><button id="prev"'+(k?'':' disabled')+'>◀ Prev</button><button id="flipA">⇅ Flip</button><button id="next"'+(k<n?'':' disabled')+'>Next ▶</button></div>';
 
   // summary
   h+='<h2>Summary</h2><div class="card">';
@@ -1003,30 +1148,31 @@ function renderAna(){
   for(var i=0;i<n;i+=2){
     h+='<div class="mv"><div class="n">'+(i/2+1)+'.</div>'+mvBtn(ent[i],i+1,k)+(ent[i+1]?mvBtn(ent[i+1],i+2,k):'<div></div>')+'</div>';
   }
+  h+='<h2>What to show</h2><div class="card">'+optsHtml()+'</div>';
   h+='<h2>Analysis strength</h2><div class="row"><select id="depth2">'+depthOptions(a.depth)+'</select><button id="rerun">Re-analyze</button></div>';
   el.innerHTML=h;
   var sel=el.querySelector('.mv .sel');
 }
-function winProbOf(v){ if(v>900)return 1; if(v<-900)return 0; return 1/(1+Math.exp(-v/2.5)); }
 function mvBtn(e,idx,k){
   return '<button data-ply="'+idx+'" class="'+(idx===k?'sel':'')+'"><i style="background:var(--'+e.cls+')"></i>'+esc(e.move)+'<em>'+CLS_MARK[e.cls]+'</em></button>';
 }
 function anaClicks(e){
   var a=analysisOf(cur());
   var jump=e.target.closest('[data-jump]');
-  if(jump){ e.preventDefault(); ui.k=+jump.dataset.jump; ui.view='after'; renderAna(); window.scrollTo(0,0); return; }
+  if(jump){ e.preventDefault(); resetView(); ui.k=+jump.dataset.jump; renderAna(); window.scrollTo(0,0); return; }
   var gr=e.target.closest('#graph');
   if(gr&&a){
     var pt=gr.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; var q=pt.matrixTransform(gr.getScreenCTM().inverse());
-    var n=a.res.series.length-1; ui.k=clamp(Math.round((q.x-6)/288*n),0,n); ui.view='after'; renderAna(); return;
+    var n=a.res.series.length-1; resetView(); ui.k=clamp(Math.round((q.x-6)/288*n),0,n); renderAna(); return;
   }
   var b=e.target.closest('button'); if(!b) return;
-  if(b.dataset.ply){ ui.k=+b.dataset.ply; ui.view='after'; renderAna(); }
+  if(analysisBtn(b)) return;
+  if(b.dataset.ply){ resetView(); ui.k=+b.dataset.ply; renderAna(); }
   else if(b.id==='run'){ store.depth=+$('#depth').value; store.depthChosen=true; save(); runAnalysis(); }
   else if(b.id==='rerun'){ store.depth=+$('#depth2').value; save(); cur().analysis=null; runAnalysis(); }
-  else if(b.id==='prev'){ ui.k=Math.max(0,ui.k-1); ui.view='after'; renderAna(); }
-  else if(b.id==='next'){ ui.k=Math.min(a.res.entries.length,ui.k+1); ui.view='after'; renderAna(); }
-  else if(b.id==='toggleBest'){ ui.view=ui.view==='best'?'after':'best'; renderAna(); }
+  else if(b.id==='prev'){ resetView(); ui.k=Math.max(0,ui.k-1); renderAna(); }
+  else if(b.id==='next'){ resetView(); ui.k=Math.min(a.res.entries.length,ui.k+1); renderAna(); }
+  else if(b.id==='flipA'){ ui.flip=!ui.flip; renderAna(); }
 }
 
 /* ---------------- games view ---------------- */
@@ -1079,11 +1225,21 @@ function gamesClicks(e){
 }
 
 /* ---------------- boot ---------------- */
-load(); cur();
+load(); ensureOpts(); cur();
 document.querySelector('nav').addEventListener('click',function(e){ var b=e.target.closest('button'); if(b) openTab(b.dataset.tab); });
 $('#v-rec').addEventListener('click',recClicks);
 $('#v-ana').addEventListener('click',anaClicks);
-$('#v-rec').addEventListener('change',function(e){ if(e.target.id==='depthRec'){ store.depth=+e.target.value; save(); liveEnsure(); var lc=$('#liveCard'); if(lc) lc.innerHTML=liveHtml(); } });
+function onChange(e){
+  var t=e.target;
+  if(t.dataset&&t.dataset.opt){ store.opts[t.dataset.opt]=t.checked?1:0; save(); renderCurrent(); }
+  else if(t.id==='animMs'){
+    store.animMs=+t.value; save();
+    var a=ui.anim; if(a&&a.line&&a.i<a.line.length){ clearInterval(a.timer); a.timer=setInterval(a.tick,store.animMs); }
+  }
+  else if(t.id==='depthRec'){ store.depth=+t.value; save(); liveEnsure(); updateLive(); }
+}
+$('#v-rec').addEventListener('change',onChange);
+$('#v-ana').addEventListener('change',onChange);
 $('#v-games').addEventListener('click',gamesClicks);
 renderRec();
 })();
