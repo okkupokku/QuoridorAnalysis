@@ -751,7 +751,7 @@ function cur(){
   for(var i=0;i<store.games.length;i++) if(store.games[i].id===store.cur) return store.games[i];
   return store.games.length ? (store.cur=store.games[0].id, store.games[0]) : newGame();
 }
-function analysisOf(g){ return g.analysis && g.analysis.key === g.moves.join(' ') && g.analysis.depth === store.depth ? g.analysis : null; }
+function analysisOf(g){ return g.analysis && g.analysis.key === g.moves.join(' ') && g.analysis.depth === store.depth && (g.analysis.engine||'classic') === engineName() ? g.analysis : null; }
 
 /* ---------------- ui state ---------------- */
 var ui = { tab:'rec', mode:'move', preview:null, flip:false, msg:'', k:0, view:'after', running:false, prog:0, importErr:'', confirmNew:false, peek:null, anim:null, lastWp:null };
@@ -840,7 +840,7 @@ function ctxLive(){
 }
 function ctxAna(res,k){
   var ent=res.entries, e=k>0?ent[k-1]:null, nx=null;
-  if(k<ent.length){ var x=ent[k], w=winProbOf(x.bestVal); nx={move:x.best,player:x.player,wpWhite:x.player===0?w:1-w}; }
+  if(k<ent.length){ var x=ent[k], w=x.wpBest!=null?x.wpBest:winProbOf(x.bestVal); nx={move:x.best,player:x.player,wpWhite:x.player===0?w:1-w}; }
   return { n:k, e:e, next:nx, wp:res.series[k], pending:false };
 }
 function evBarHtml(c){
@@ -869,7 +869,7 @@ function infoHtml(c){
   }
   if(o.anim) b+=ui.anim?'<button class="sm primary" data-anim="1">■ Stop</button>':'<button class="sm" data-anim="1">▶ Play best line</button>';
   if(b) h+='<div class="btns">'+b+'</div>';
-  if(ui.anim) h+='<div class="ln note">'+(ui.anim.line?'Best line: move '+ui.anim.i+' of '+ui.anim.line.length+(ui.anim.i?' ('+ui.anim.line[ui.anim.i-1]+')':''):'Calculating best line…')+'</div>';
+  if(ui.anim) h+='<div class="ln note">'+(ui.anim.line?'Best line: move '+ui.anim.i+(ui.anim.streaming?'':' of '+ui.anim.line.length)+(ui.anim.i?' ('+ui.anim.line[ui.anim.i-1]+')':''):'Calculating best line…')+'</div>';
   if(ui.peek==='prev') h+='<div class="ln note">Orange: played · Blue: better</div>';
   if(ui.peek==='next') h+='<div class="ln note">Blue: best next move</div>';
   if(o.speed) h+=speedHtml();
@@ -896,11 +896,18 @@ function startAnim(){
   var g=cur(), base=ui.tab==='ana'?g.moves.slice(0,ui.k):g.moves.slice();
   if(Q.winner(Q.replay(base))>=0){ ui.msg='The game is already decided.'; renderCurrent(); return; }
   ui.peek=null;
-  var a={base:base,line:null,i:0,timer:null,h:null}; ui.anim=a;
-  var tick=function(){ if(ui.anim!==a){ clearInterval(a.timer); return; } a.i++; if(a.i>=a.line.length) clearInterval(a.timer); renderCurrent(); };
-  var go=function(line){ if(ui.anim!==a) return; a.line=line; a.i=0; renderCurrent(); a.timer=setInterval(tick,store.animMs); };
+  // Moves can arrive one at a time (neural engine) or all at once (built-in engine).
+  var a={base:base,line:null,i:0,timer:null,h:null,streaming:true}; ui.anim=a;
+  var tick=function(){
+    if(ui.anim!==a){ clearInterval(a.timer); return; }
+    if(a.i<a.line.length){ a.i++; renderCurrent(); }
+    if(a.i>=a.line.length&&!a.streaming){ clearInterval(a.timer); a.timer=null; renderCurrent(); }
+  };
+  var startTimer=function(){ if(!a.timer) a.timer=setInterval(tick,store.animMs); };
+  var add=function(mv){ if(ui.anim!==a) return; if(!a.line){ a.line=[]; renderCurrent(); } a.line.push(mv); startTimer(); };
+  var go=function(line){ if(ui.anim!==a) return; a.streaming=false; if(!a.line) a.line=[]; for(var i=a.line.length;i<line.length;i++) a.line.push(line[i]); if(!a.line.length) renderCurrent(); startTimer(); };
   a.tick=tick;
-  a.h=spawn({kind:'line',moves:base,depth:store.depth,max:60},function(d){ if(d.line){ a.h.stop(); go(d.line); } },
+  a.h=spawn({kind:'line',moves:base,depth:store.depth,max:60},function(d){ if(d.cancelled){ if(ui.anim===a){ stopAnim(); renderCurrent(); } return; } if(d.lineMove){ add(d.lineMove); return; } if(d.line){ a.h.stop(); go(d.line); } },
     function(){ setTimeout(function(){ go(Q.bestLine(base,base.length,store.depth,60)); },30); });
   renderCurrent();
 }
@@ -969,7 +976,7 @@ function updateLive(){
   if(ev) ev.innerHTML=evBarHtml(c);
 }
 function depthOptions(sel){
-  return [[3,'Quick'],[4,'Normal'],[5,'Deep'],[6,'Very deep (slow)']].map(function(o){return '<option value="'+o[0]+'"'+(sel===o[0]?' selected':'')+'>'+o[1]+' (depth '+o[0]+')</option>';}).join('');
+  return [[3,'Quick'],[4,'Normal'],[5,'Deep'],[6,'Very deep (slow)']].map(function(o){return '<option value="'+o[0]+'"'+(sel===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('');
 }
 function movesLine(ms){
   var out=[]; for(var i=0;i<ms.length;i++){ if(i%2===0) out.push((i/2+1)+'.'); out.push(ms[i]); } return out.join(' ');
@@ -1019,7 +1026,97 @@ function workerSrc(){
   return document.getElementById('engine-src').textContent+
     '\nonmessage=function(e){var d=e.data;if(d.kind==="live"){postMessage({live:Quor.liveInfo(d.moves,d.depth)});return;}if(d.kind==="line"){postMessage({line:Quor.bestLine(d.moves,d.moves.length,d.depth,d.max)});return;}var r=Quor.analyze(d.moves,d.depth,function(i,n){postMessage({p:i,n:n});});postMessage({done:r});};';
 }
+// Neural engine (SigmaQuoridor network, sigma_worker.js). A small pool of
+// workers: full analyses spread positions over all of them; live analysis and
+// best-line animation use the first one. Falls back to the built-in engine.
+var SIMS={3:8,4:16,5:64,6:200};
+var SIG={main:null,pool:[],gen:0,state:'idle'};
+function engineName(){ return SIG.state==='failed'?'classic':'sigma'; }
+function poolSize(){
+  var k=Math.max(1,Math.min(4,(navigator.hardwareConcurrency||2)-1));
+  if((navigator.maxTouchPoints||0)>0) k=Math.min(k,2);
+  return k;
+}
+function makeSigWorker(){
+  var o={w:new Worker('sigma_worker.js'),state:'loading',job:null};
+  var fail=function(){ o.state='failed'; var j=o.job; o.job=null; if(o===SIG.main) SIG.state='failed'; if(j) j.fail(); };
+  o.w.onmessage=function(e){
+    var d=e.data;
+    if(d.type==='ready'){ o.state='ready'; if(o===SIG.main){ SIG.state='ready'; var pt=$('#progTxt'); if(pt&&/Loading/.test(pt.textContent)) pt.textContent='Analyzing…'; } return; }
+    if(d.type==='failed'){ fail(); return; }
+    var j=o.job; if(!j||d.gen!==j.gen) return;
+    if(d.type==='progress') j.progress(d);
+    else if(d.type==='result'){ o.job=null; j.result(d.data); }
+  };
+  o.w.onerror=fail;
+  return o;
+}
+function sigStart(){
+  if(SIG.state!=='idle') return;
+  if(location.protocol==='file:'||typeof Worker==='undefined'){ SIG.state='failed'; return; }
+  try{ SIG.main=makeSigWorker(); SIG.pool=[SIG.main]; SIG.state='loading'; }catch(err){ SIG.state='failed'; }
+}
+function runOn(o,kind,payload,h){
+  if(o.job){ var p=o.job; o.job=null; if(p.cancel) p.cancel(); }
+  var gen=++SIG.gen, j={gen:gen,progress:h.progress||function(){},result:h.result,fail:h.fail,cancel:h.cancel}; o.job=j;
+  var m={type:'job',gen:gen,kind:kind}; for(var k in payload) m[k]=payload[k];
+  o.w.postMessage(m);
+  return { stop:function(){ if(o.job===j){ o.job=null; o.w.postMessage({type:'cancel',gen:++SIG.gen}); } } };
+}
+function sigClassify(drop,isBest){
+  if(isBest||drop<0.01) return 'best'; if(drop<0.04) return 'good'; if(drop<0.10) return 'inaccuracy'; if(drop<0.22) return 'mistake'; return 'blunder';
+}
+// Same rating rule as sigma_worker.js: win-chance drop between the position before and after the move.
+function sigAssemble(moves,vals,depth){
+  var entries=[], series=[vals[0].wp];
+  for(var i=0;i<moves.length;i++){
+    var a=vals[i], b=vals[i+1], p=i%2, before=a.wp, after=b.over?(b.wp===0?1:0.5):1-b.wp;
+    var drop=Math.max(0,before-after), best=a.best||moves[i]; if(drop<0.005) best=moves[i];
+    var wpBest=Math.max(before,after);
+    var e={ply:i,player:p,move:moves[i],best:best,drop:drop,cls:sigClassify(drop,best===moves[i]),
+           wpWhite:p===0?after:1-after,wpBeforeWhite:p===0?wpBest:1-wpBest,wpBest:wpBest};
+    entries.push(e); series.push(e.wpWhite);
+  }
+  var w=Q.winner(Q.replay(moves));
+  if(w>=0) series[series.length-1]=w===0?1:0;
+  return {entries:entries,series:series,winner:w,depth:depth,engine:'sigma'};
+}
+function poolFull(msg,onMsg,fallback){
+  var k=poolSize();
+  while(SIG.pool.length<k){ try{ SIG.pool.push(makeSigWorker()); }catch(err){ break; } }
+  var workers=SIG.pool.filter(function(o){ return o.state!=='failed'; });
+  var n=msg.moves.length, total=n+1, done=0, vals=new Array(total), parts=workers.length, finished=0, over=false, handles=[];
+  var sims=SIMS[msg.depth]!=null?SIMS[msg.depth]:50;
+  var stopAll=function(){ handles.forEach(function(h){ h.stop(); }); };
+  workers.forEach(function(o,wi){
+    var idx=[]; for(var i=wi;i<total;i+=parts) idx.push(i);
+    if(!idx.length){ finished++; return; }
+    handles.push(runOn(o,'evals',{moves:msg.moves,idx:idx,sims:sims},{
+      progress:function(){ done++; if(!over) onMsg({p:done,n:total}); },
+      result:function(list){
+        list.forEach(function(v){ vals[v.i]=v; });
+        if(++finished===parts&&!over){ over=true; onMsg({done:sigAssemble(msg.moves,vals,msg.depth)}); }
+      },
+      fail:function(){ if(over) return; over=true; stopAll(); classicSpawn(msg,onMsg,fallback); },
+      cancel:function(){ if(over) return; over=true; stopAll(); onMsg({cancelled:true}); }
+    }));
+  });
+  return { stop:function(){ over=true; stopAll(); } };
+}
 function spawn(msg,onMsg,fallback){
+  sigStart();
+  if(SIG.state==='failed') return classicSpawn(msg,onMsg,fallback);
+  var kind=msg.kind||'full';
+  if(kind==='full') return poolFull(msg,onMsg,fallback);
+  var sims=SIMS[msg.depth]!=null?SIMS[msg.depth]:50;
+  return runOn(SIG.main,kind,{moves:msg.moves,sims:sims,max:msg.max},{
+    progress:function(d){ if(d.move) onMsg({lineMove:d.move}); },
+    result:function(data){ var m={}; m[kind]=data; onMsg(m); },
+    fail:function(){ classicSpawn(msg,onMsg,fallback); },
+    cancel:function(){ onMsg({cancelled:true}); }
+  });
+}
+function classicSpawn(msg,onMsg,fallback){
   var w=null;
   try{
     w=new Worker(URL.createObjectURL(new Blob([workerSrc()],{type:'text/javascript'})));
@@ -1035,18 +1132,19 @@ function runAnalysis(){
   ui.running=true; ui.prog=0; renderAna();
   var finish=function(res){
     ui.running=false;
-    g.analysis={key:moves.join(' '),depth:depth,res:res};
+    g.analysis={key:moves.join(' '),depth:depth,engine:res.engine||'classic',res:res};
     ui.k=defaultSelection(res); save(); renderAna();
   };
   h=spawn({moves:moves,depth:depth},function(d){
+    if(d.cancelled){ ui.running=false; return; }
     if(d.done){ h.stop(); finish(d.done); }
     else { var bar=$('#bar'); if(bar) bar.style.width=Math.round(100*d.p/d.n)+'%'; var pt=$('#progTxt'); if(pt) pt.textContent='Analyzing move '+Math.min(d.p+1,d.n)+' of '+d.n+'…'; }
   },function(){ setTimeout(function(){ finish(Q.analyze(moves,depth)); },60); });
 }
-function liveKey(g,n){ return store.depth+'|'+g.moves.slice(0,n).join(' '); }
+function liveKey(g,n){ return engineName()+'|'+store.depth+'|'+g.moves.slice(0,n).join(' '); }
 function liveEnsure(){
   var g=cur(), n=g.moves.length;
-  if(!store.live||!store.depthChosen) return;
+  if(!store.live||!store.depthChosen||ui.anim) return;   // the animation uses the same worker
   var key=liveKey(g,n); if(liveCache[key]||liveBusy===key) return;
   if(liveH) liveH.stop();
   liveBusy=key;
@@ -1055,7 +1153,7 @@ function liveEnsure(){
     liveCache[key]=info; if(liveBusy===key) liveBusy=null;
     if(liveKey(cur(),cur().moves.length)===key) updateLive();
   };
-  liveH=spawn({kind:'live',moves:moves,depth:depth},function(d){ if(d.live){ liveH.stop(); done(d.live); } },
+  liveH=spawn({kind:'live',moves:moves,depth:depth},function(d){ if(d.cancelled){ if(liveBusy===key) liveBusy=null; return; } if(d.live){ liveH.stop(); done(d.live); } },
     function(){ setTimeout(function(){ done(Q.liveInfo(moves,depth)); },30); });
 }
 function turningPoint(a){
@@ -1103,7 +1201,7 @@ function renderAna(){
   var h='<h1>Analyze: '+esc(g.name)+'</h1>';
   if(!g.moves.length){ el.innerHTML=h+'<div class="card">Make some moves first.</div>'; return; }
   if(ui.running){
-    el.innerHTML=h+'<div class="card"><div id="progTxt">Analyzing…</div><div class="progress"><div id="bar"></div></div><p class="note">The engine searches every position and compares your move with the best one it can find.</p></div>';
+    el.innerHTML=h+'<div class="card"><div id="progTxt">'+(SIG.state==='loading'?'Loading the neural network…':'Analyzing…')+'</div><div class="progress"><div id="bar"></div></div><p class="note">The engine evaluates every position and compares your move with the best one it finds.</p></div>';
     return;
   }
   if(!a){
@@ -1141,7 +1239,7 @@ function renderAna(){
     if(worst&&ent[worst-1].drop>=.1) h+='<div class="note" style="margin-top:4px">Biggest slip: move '+(Math.floor((worst-1)/2)+1)+' '+moveText(ent[worst-1].move)+' (−'+pct(ent[worst-1].drop)+'%) <a href="#" data-jump="'+worst+'">show</a></div>';
     h+='</div>';
   });
-  h+='<p class="note" style="margin-bottom:0">Analysed at depth '+a.depth+' — it is a heuristic search, not a perfect solver, so treat verdicts as guidance.</p></div>';
+  h+='<p class="note" style="margin-bottom:0">Analysed with '+(a.engine==='sigma'?'the SigmaQuoridor neural network':'the built-in engine (neural network unavailable)')+'. Engines can disagree on single moves, so treat verdicts as guidance.</p></div>';
 
   // move list
   h+='<h2>Moves</h2>';
@@ -1225,7 +1323,7 @@ function gamesClicks(e){
 }
 
 /* ---------------- boot ---------------- */
-load(); ensureOpts(); cur();
+load(); ensureOpts(); cur(); sigStart();
 document.querySelector('nav').addEventListener('click',function(e){ var b=e.target.closest('button'); if(b) openTab(b.dataset.tab); });
 $('#v-rec').addEventListener('click',recClicks);
 $('#v-ana').addEventListener('click',anaClicks);

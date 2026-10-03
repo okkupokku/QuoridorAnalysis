@@ -115,3 +115,19 @@ Compared on the same 3,061 9x9 positions (45 games). zquoridor: NNUE + MCTS/alph
 | Reference mistakes also flagged (recall) vs zquoridor / Sigma | 18% / 20% | 27% / 36% | | 48% (vs zquoridor) |
 
 Conclusions: zquoridor is far stronger than the own engine at move choice. The two strong engines agree on mistakes and best moves only moderately (62% best move), so single-move verdicts are inherently uncertain even for strong engines. Sigma is MIT-licensed, ships its weights, and already has a browser (ONNX + JS) implementation, so it is the engine to integrate. zquoridor has no licence file found and is used as a reference only. gedik was not tested (needs a Rust toolchain).
+
+## 8. Integrated engine (SigmaQuoridor in the browser)
+
+The app now analyses with SigmaQuoridor's network plus PUCT search in Web Workers (positions are spread over up to 4 workers; 2 on touch devices). The browser implementation reproduces the Python reference exactly (largest difference 0.0000 at 100 simulations, 0.00005 for the raw network).
+
+Search budget vs quality, same 3,061 positions, judged against zquoridor:
+
+| Simulations per position | Flags confirmed by zquoridor | zquoridor mistakes caught | Same best move | Brier |
+|---|---|---|---|---|
+| 0 (network only) | 37% | 30% | n/a | 0.162 |
+| 8 (Quick) | 60% | 49% | 62% | 0.150 |
+| 16 (Normal, default) | 61% | 50% | 63% | 0.150 |
+| 100 | 61% | 48% | 62% | 0.155 |
+| Old built-in engine, depth 4 | 58% | 18% | 54% | 0.168 |
+
+Speed: a 40-move game at Normal takes about 3 s on an M-series Mac (4 workers); expect several times longer on a phone.
