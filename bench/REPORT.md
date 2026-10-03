@@ -98,3 +98,20 @@ python3 gen_engine_n.py; cat engine_n.js bridge_n_tail.js > bridge_n.js; cat ../
 python3 eval_small.py 4 2 1500 2,3,4,5,6,7 gt_4_2.json && python3 gt_report.py gt_4_2.json
 python3 match.py pavlos 4 15 m_pavlos_d4.json 12
 ```
+
+## 7. Stronger reference engines (2026-10-04)
+
+Compared on the same 3,061 9x9 positions (45 games). zquoridor: NNUE + MCTS/alpha-beta, 400 ms per position, root value patched into the UCI output. SigmaQuoridor: AlphaZero-style network (`docs/models_9x9/best.onnx`) with 100 MCTS simulations. Neither tool is vendored here; scripts `zq*.py`, `sigma*.py`, `cmp_engines.py`.
+
+| | Own engine d4 | Own engine d6 | zquoridor | Sigma (100 sims) |
+|---|---|---|---|---|
+| Games vs zquoridor (500 ms/move, 10 openings x 2 colours) | 0 W / 20 L | 1 W / 19 L | | |
+| Brier score vs real outcomes (lower is better) | 0.168 | 0.173 | 0.173 | 0.155 |
+| Winner predicted late in game | 90% | 90% | 86% | 96% |
+| Same best move as zquoridor | 54% | 55% | | 62% |
+| Same best move as Sigma | 57% | 58% | 62% | |
+| Moves flagged as mistakes (drop >= 10%) | 201 | 347 | 649 | 507 |
+| Own flags confirmed by zquoridor / Sigma | 58% / 49% | 50% / 52% | | 61% (by zquoridor) |
+| Reference mistakes also flagged (recall) vs zquoridor / Sigma | 18% / 20% | 27% / 36% | | 48% (vs zquoridor) |
+
+Conclusions: zquoridor is far stronger than the own engine at move choice. The two strong engines agree on mistakes and best moves only moderately (62% best move), so single-move verdicts are inherently uncertain even for strong engines. Sigma is MIT-licensed, ships its weights, and already has a browser (ONNX + JS) implementation, so it is the engine to integrate. zquoridor has no licence file found and is used as a reference only. gedik was not tested (needs a Rust toolchain).
