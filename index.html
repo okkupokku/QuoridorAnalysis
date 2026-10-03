@@ -70,6 +70,10 @@ select{font:inherit;padding:10px;border-radius:12px;border:1px solid var(--line)
 .g button{flex:none;padding:6px 10px;min-height:36px}
 .note{color:var(--mute);font-size:13px}
 .hint{font-size:14px;margin:8px 0 0}
+select{max-width:100%}
+.wbar{height:12px;border-radius:6px;background:#2b2a30;overflow:hidden;border:1px solid var(--line);margin:6px 0 4px}
+.wbar div{height:100%;background:#fbfaf6}
+.wl{display:flex;justify-content:space-between;font-size:13px;color:var(--mute)}
 .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mute);margin-top:6px}
 .legend b{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 </style>
@@ -81,7 +85,7 @@ select{font:inherit;padding:10px;border-radius:12px;border:1px solid var(--line)
   <section id="v-games" class="hidden"></section>
 </main>
 <nav>
-  <button data-tab="rec" class="on"><span>♟</span>Record</button>
+  <button data-tab="rec" class="on"><span>♟</span>Play or record</button>
   <button data-tab="ana"><span>📈</span>Analyze</button>
   <button data-tab="games"><span>🗂</span>Games</button>
 </nav>
@@ -314,30 +318,45 @@ var Quor = (function () {
     return 'blunder';
   }
 
+  // Analysis of one move from position s (s is left unchanged). Returns the entry plus
+  // wpBeforeWhite: white's win chance in the position before the move, assuming best play.
+  function evalPly(s, moveStr, ply, depth) {
+    var limit = depth >= 4 ? 8 : 10;
+    var mv = parse(moveStr), p = s.turn;
+    var root = rootSearch(s, depth, limit);
+    var pv = playedValue(s, mv, depth, limit);
+    var bestVal = root.value, bestMove = root.move ? fmt(root.move) : moveStr;
+    if (pv >= bestVal) { bestVal = pv; bestMove = moveStr; }
+    var wpBefore = winProb(bestVal), wpAfter = winProb(pv), drop = wpBefore - wpAfter;
+    return {
+      ply: ply, player: p, move: moveStr, best: bestMove,
+      bestVal: bestVal, playedVal: pv, drop: drop,
+      cls: classify(drop, bestMove === moveStr),
+      wpWhite: p === 0 ? wpAfter : 1 - wpAfter,
+      wpBeforeWhite: p === 0 ? wpBefore : 1 - wpBefore
+    };
+  }
+
+  // Analyze just move number `ply` (0-based) of a game; used for live analysis.
+  function analyzePly(moves, ply, depth) {
+    var s = replay(moves, ply);
+    var e = evalPly(s, moves[ply], ply, depth || 3);
+    var after = replay(moves, ply + 1), w = winner(after);
+    if (w >= 0) e.wpWhite = w === 0 ? 1 : 0;
+    return e;
+  }
+
   // Full-game analysis. Returns one entry per ply plus the white win-probability series.
   function analyze(moves, depth, onProgress) {
     depth = depth || 3;
-    var limit = depth >= 4 ? 8 : 10;
     var s = newState(), entries = [], series = [];
     for (var i = 0; i < moves.length; i++) {
       if (onProgress) onProgress(i, moves.length);
-      var mv = parse(moves[i]), p = s.turn;
-      var root = rootSearch(s, depth, limit);
-      var pv = playedValue(s, mv, depth, limit);
-      var bestVal = root.value, bestMove = root.move ? fmt(root.move) : moves[i];
-      if (pv >= bestVal) { bestVal = pv; bestMove = moves[i]; }
-      var wpBefore = winProb(bestVal), wpAfter = winProb(pv);
-      var drop = wpBefore - wpAfter;
-      var isBest = bestMove === moves[i];
-      if (i === 0) series.push(p === 0 ? wpBefore : 1 - wpBefore);
-      entries.push({
-        ply: i, player: p, move: moves[i], best: bestMove,
-        bestVal: bestVal, playedVal: pv, drop: drop,
-        cls: classify(drop, isBest),
-        wpWhite: p === 0 ? wpAfter : 1 - wpAfter
-      });
-      series.push(entries[i].wpWhite);
-      doMove(s, mv);
+      var e = evalPly(s, moves[i], i, depth);
+      if (i === 0) series.push(e.wpBeforeWhite);
+      entries.push(e);
+      series.push(e.wpWhite);
+      doMove(s, parse(moves[i]));
     }
     var w = winner(s);
     if (w >= 0) series[series.length - 1] = w === 0 ? 1 : 0;
@@ -348,7 +367,7 @@ var Quor = (function () {
   return {
     LET: LET, newState: newState, clone: clone, blocked: blocked, pawnMoves: pawnMoves,
     wallProblem: wallProblem, doMove: doMove, undoMove: undoMove, fmt: fmt, parse: parse,
-    winner: winner, replay: replay, bfs: bfs, analyze: analyze, goalRow: goalRow
+    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, goalRow: goalRow
   };
 })();
 if (typeof module !== 'undefined') module.exports = Quor;
@@ -582,30 +601,45 @@ var Quor = (function () {
     return 'blunder';
   }
 
+  // Analysis of one move from position s (s is left unchanged). Returns the entry plus
+  // wpBeforeWhite: white's win chance in the position before the move, assuming best play.
+  function evalPly(s, moveStr, ply, depth) {
+    var limit = depth >= 4 ? 8 : 10;
+    var mv = parse(moveStr), p = s.turn;
+    var root = rootSearch(s, depth, limit);
+    var pv = playedValue(s, mv, depth, limit);
+    var bestVal = root.value, bestMove = root.move ? fmt(root.move) : moveStr;
+    if (pv >= bestVal) { bestVal = pv; bestMove = moveStr; }
+    var wpBefore = winProb(bestVal), wpAfter = winProb(pv), drop = wpBefore - wpAfter;
+    return {
+      ply: ply, player: p, move: moveStr, best: bestMove,
+      bestVal: bestVal, playedVal: pv, drop: drop,
+      cls: classify(drop, bestMove === moveStr),
+      wpWhite: p === 0 ? wpAfter : 1 - wpAfter,
+      wpBeforeWhite: p === 0 ? wpBefore : 1 - wpBefore
+    };
+  }
+
+  // Analyze just move number `ply` (0-based) of a game; used for live analysis.
+  function analyzePly(moves, ply, depth) {
+    var s = replay(moves, ply);
+    var e = evalPly(s, moves[ply], ply, depth || 3);
+    var after = replay(moves, ply + 1), w = winner(after);
+    if (w >= 0) e.wpWhite = w === 0 ? 1 : 0;
+    return e;
+  }
+
   // Full-game analysis. Returns one entry per ply plus the white win-probability series.
   function analyze(moves, depth, onProgress) {
     depth = depth || 3;
-    var limit = depth >= 4 ? 8 : 10;
     var s = newState(), entries = [], series = [];
     for (var i = 0; i < moves.length; i++) {
       if (onProgress) onProgress(i, moves.length);
-      var mv = parse(moves[i]), p = s.turn;
-      var root = rootSearch(s, depth, limit);
-      var pv = playedValue(s, mv, depth, limit);
-      var bestVal = root.value, bestMove = root.move ? fmt(root.move) : moves[i];
-      if (pv >= bestVal) { bestVal = pv; bestMove = moves[i]; }
-      var wpBefore = winProb(bestVal), wpAfter = winProb(pv);
-      var drop = wpBefore - wpAfter;
-      var isBest = bestMove === moves[i];
-      if (i === 0) series.push(p === 0 ? wpBefore : 1 - wpBefore);
-      entries.push({
-        ply: i, player: p, move: moves[i], best: bestMove,
-        bestVal: bestVal, playedVal: pv, drop: drop,
-        cls: classify(drop, isBest),
-        wpWhite: p === 0 ? wpAfter : 1 - wpAfter
-      });
-      series.push(entries[i].wpWhite);
-      doMove(s, mv);
+      var e = evalPly(s, moves[i], i, depth);
+      if (i === 0) series.push(e.wpBeforeWhite);
+      entries.push(e);
+      series.push(e.wpWhite);
+      doMove(s, parse(moves[i]));
     }
     var w = winner(s);
     if (w >= 0) series[series.length - 1] = w === 0 ? 1 : 0;
@@ -616,7 +650,7 @@ var Quor = (function () {
   return {
     LET: LET, newState: newState, clone: clone, blocked: blocked, pawnMoves: pawnMoves,
     wallProblem: wallProblem, doMove: doMove, undoMove: undoMove, fmt: fmt, parse: parse,
-    winner: winner, replay: replay, bfs: bfs, analyze: analyze, goalRow: goalRow
+    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, goalRow: goalRow
   };
 })();
 if (typeof module !== 'undefined') module.exports = Quor;
@@ -630,9 +664,9 @@ var $ = function(s){return document.querySelector(s);};
 
 /* ---------------- storage ---------------- */
 var KEY = 'quoridor-review-v1';
-var store = { games: [], cur: null, depth: 4 };
+var store = { games: [], cur: null, depth: 4, live: false, depthChosen: false };
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(store)); }catch(e){} }
-function load(){ try{ var j = JSON.parse(localStorage.getItem(KEY)); if(j && j.games) store = j; }catch(e){} }
+function load(){ try{ var j = JSON.parse(localStorage.getItem(KEY)); if(j && j.games){ store = j; if(store.depthChosen===undefined) store.depthChosen = store.games.some(function(g){return g.analysis;}); } }catch(e){} }
 function stamp(){ var d=new Date(), p=function(n){return (n<10?'0':'')+n;}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
 function newGame(moves){
   var g = { id: Date.now().toString(36)+Math.random().toString(36).slice(2,5), name: 'Game '+stamp(), moves: moves||[], analysis: null };
@@ -642,10 +676,10 @@ function cur(){
   for(var i=0;i<store.games.length;i++) if(store.games[i].id===store.cur) return store.games[i];
   return store.games.length ? (store.cur=store.games[0].id, store.games[0]) : newGame();
 }
-function analysisOf(g){ return g.analysis && g.analysis.key === g.moves.join(' ') ? g.analysis : null; }
+function analysisOf(g){ return g.analysis && g.analysis.key === g.moves.join(' ') && g.analysis.depth === store.depth ? g.analysis : null; }
 
 /* ---------------- ui state ---------------- */
-var ui = { tab:'rec', mode:'move', preview:null, flip:false, msg:'', k:0, view:'after', running:false, prog:0, importErr:'' };
+var ui = { tab:'rec', mode:'move', preview:null, flip:false, msg:'', k:0, view:'after', running:false, prog:0, importErr:'', confirmNew:false };
 
 /* ---------------- helpers ---------------- */
 function wallsAt(moves,k){
@@ -713,7 +747,7 @@ function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 /* ---------------- record view ---------------- */
 function renderRec(){
   var g=cur(), st=Q.replay(g.moves), win=Q.winner(st);
-  var h='<h1>Record a game</h1>';
+  var h='<h1>Play or record</h1>';
   if(win>=0){
     h+='<div class="banner">'+NAME[win]+' wins in '+Math.ceil(g.moves.length/2)+' moves!<button class="primary" id="goAna" style="background:#fff;color:#1f1d1a">Analyze this game</button></div>';
   }
@@ -746,9 +780,25 @@ function renderRec(){
       h+='<div class="row" style="margin-bottom:8px"><button id="rot"'+(ui.preview?'':' disabled')+'>⟳ Rotate</button><button id="okWall" class="primary"'+(ui.preview&&!preview.problem?'':' disabled')+'>Confirm wall</button></div>';
     }
   }
-  h+='<div class="row"><button id="undo"'+(g.moves.length?'':' disabled')+'>↶ Undo</button><button id="flip">⇅ Flip board</button>'+(win<0&&g.moves.length>1?'<button id="goAna2">Analyze</button>':'')+'</div>';
+  h+='<div class="row"><button id="undo"'+(g.moves.length?'':' disabled')+'>↶ Undo</button><button id="flip">⇅ Flip board</button></div>';
+  if(ui.confirmNew){
+    h+='<div class="card" style="margin-top:8px"><b>Start a new game?</b><p style="margin:4px 0 10px">The board resets. This game ('+g.moves.length+' moves) stays saved under Games.</p><div class="row"><button id="newYes" class="primary">Start new game</button><button id="newNo">Keep playing</button></div></div>';
+  } else {
+    h+='<div class="row" style="margin-top:8px">'+(win<0&&g.moves.length>1?'<button id="goAna2">Analyze game</button>':'')+'<button id="newGame">＋ New game</button></div>';
+  }
+  h+='<div class="card" style="margin-top:12px"><div class="row"><div style="flex:2"><b>Analyze while playing</b><div class="note">Rates each move right after it is played.</div></div><div class="seg" style="flex:1.2"><button data-live="0" class="'+(store.live?'':'on')+'">Off</button><button data-live="1" class="'+(store.live?'on':'')+'">On</button></div></div>';
+  if(store.live&&!store.depthChosen){
+    h+='<p class="note" style="margin:10px 0 6px">Choose how deeply the engine searches. You only choose once; you can change it later.</p><div class="row"><select id="depthPick">'+depthOptions(store.depth)+'</select><button id="liveStart" class="primary">Start</button></div>';
+  } else if(store.live){
+    h+='<div id="liveCard" style="margin-top:10px">'+liveHtml()+'</div><div class="row" style="margin-top:10px"><label for="depthRec" class="note" style="flex:none">Strength</label><select id="depthRec">'+depthOptions(store.depth)+'</select></div>';
+  }
+  h+='</div>';
   h+='<p class="note" style="margin-top:12px">Moves so far: '+(g.moves.length?esc(movesLine(g.moves)):'none yet')+'</p>';
   $('#v-rec').innerHTML=h;
+  liveEnsure();
+}
+function depthOptions(sel){
+  return [[3,'Quick'],[4,'Normal'],[5,'Deep'],[6,'Very deep (slow)']].map(function(o){return '<option value="'+o[0]+'"'+(sel===o[0]?' selected':'')+'>'+o[1]+' (depth '+o[0]+')</option>';}).join('');
 }
 function movesLine(ms){
   var out=[]; for(var i=0;i<ms.length;i++){ if(i%2===0) out.push((i/2+1)+'.'); out.push(ms[i]); } return out.join(' ');
@@ -783,31 +833,68 @@ function recClicks(e){
     if(!Q.wallProblem(st,p.t,p.c,p.r)){ g.moves.push(Q.fmt({t:p.t,x:p.c,y:p.r})); ui.mode='move'; afterChange(); }
   }
   else if(t.id==='goAna'||t.id==='goAna2'){ openAna(); }
+  else if(t.id==='newGame'){ if(g.moves.length){ ui.confirmNew=true; } else { ui.msg='The board is already empty.'; } renderRec(); }
+  else if(t.id==='newNo'){ ui.confirmNew=false; renderRec(); }
+  else if(t.id==='newYes'){ newGame(); ui.confirmNew=false; ui.mode='move'; ui.preview=null; ui.msg=''; renderRec(); window.scrollTo(0,0); }
+  else if(t.dataset.live){ store.live=t.dataset.live==='1'; save(); renderRec(); }
+  else if(t.id==='liveStart'){ store.depth=+$('#depthPick').value; store.depthChosen=true; save(); renderRec(); }
 }
 
 /* ---------------- analysis ---------------- */
-var worker=null;
+var worker=null, liveCache={}, liveH=null, liveBusy=null;
+function workerSrc(){
+  return document.getElementById('engine-src').textContent+
+    '\nonmessage=function(e){var d=e.data;if(d.ply!==undefined){postMessage({entry:Quor.analyzePly(d.moves,d.ply,d.depth)});return;}var r=Quor.analyze(d.moves,d.depth,function(i,n){postMessage({p:i,n:n});});postMessage({done:r});};';
+}
+function spawn(msg,onMsg,fallback){
+  var w=null;
+  try{
+    w=new Worker(URL.createObjectURL(new Blob([workerSrc()],{type:'text/javascript'})));
+    w.onmessage=function(e){onMsg(e.data);};
+    w.onerror=function(){ try{w.terminate();}catch(x){} w=null; fallback(); };
+    w.postMessage(msg);
+  }catch(err){ w=null; fallback(); }
+  return { stop:function(){ if(w){ try{w.terminate();}catch(x){} } } };
+}
 function runAnalysis(){
   var g=cur(); if(!g.moves.length||ui.running) return;
-  var moves=g.moves.slice(), depth=store.depth;
+  var moves=g.moves.slice(), depth=store.depth, h=null;
   ui.running=true; ui.prog=0; renderAna();
   var finish=function(res){
     ui.running=false;
     g.analysis={key:moves.join(' '),depth:depth,res:res};
     ui.k=defaultSelection(res); save(); renderAna();
   };
-  var fallback=function(){ setTimeout(function(){ finish(Q.analyze(moves,depth)); },60); };
-  try{
-    var src=document.getElementById('engine-src').textContent+
-      '\nonmessage=function(e){var r=Quor.analyze(e.data.moves,e.data.depth,function(i,n){postMessage({p:i,n:n});});postMessage({done:r});};';
-    worker=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
-    worker.onmessage=function(e){
-      if(e.data.done){ worker.terminate(); finish(e.data.done); }
-      else { var bar=$('#bar'); if(bar) bar.style.width=Math.round(100*e.data.p/e.data.n)+'%'; var pt=$('#progTxt'); if(pt) pt.textContent='Analyzing move '+Math.min(e.data.p+1,e.data.n)+' of '+e.data.n+'…'; }
-    };
-    worker.onerror=function(){ try{worker.terminate();}catch(x){} fallback(); };
-    worker.postMessage({moves:moves,depth:depth});
-  }catch(err){ fallback(); }
+  h=spawn({moves:moves,depth:depth},function(d){
+    if(d.done){ h.stop(); finish(d.done); }
+    else { var bar=$('#bar'); if(bar) bar.style.width=Math.round(100*d.p/d.n)+'%'; var pt=$('#progTxt'); if(pt) pt.textContent='Analyzing move '+Math.min(d.p+1,d.n)+' of '+d.n+'…'; }
+  },function(){ setTimeout(function(){ finish(Q.analyze(moves,depth)); },60); });
+}
+function liveKey(g,n){ return store.depth+'|'+g.moves.slice(0,n).join(' '); }
+function liveEnsure(){
+  var g=cur(), n=g.moves.length;
+  if(!store.live||!store.depthChosen||!n) return;
+  var key=liveKey(g,n); if(liveCache[key]||liveBusy===key) return;
+  if(liveH) liveH.stop();
+  liveBusy=key;
+  var moves=g.moves.slice(), depth=store.depth;
+  var done=function(entry){
+    liveCache[key]=entry; if(liveBusy===key) liveBusy=null;
+    var lc=$('#liveCard'); if(lc&&liveKey(cur(),cur().moves.length)===key) lc.innerHTML=liveHtml();
+  };
+  liveH=spawn({moves:moves,ply:n-1,depth:depth},function(d){ if(d.entry){ liveH.stop(); done(d.entry); } },
+    function(){ setTimeout(function(){ done(Q.analyzePly(moves,n-1,depth)); },30); });
+}
+function liveHtml(){
+  var g=cur(), n=g.moves.length;
+  if(!n) return '<span class="note">Make a move to see its rating.</span>';
+  var e=liveCache[liveKey(g,n)];
+  if(!e) return '<span class="note">Analyzing…</span>';
+  var w=pct(e.wpWhite);
+  var h='<b>'+(Math.floor((n-1)/2)+1)+'. '+NAME[e.player]+' '+moveText(e.move)+'</b> <span class="chipc c-'+e.cls+'">'+CLS_LABEL[e.cls]+'</span>';
+  if(e.best!==e.move) h+='<div class="hint" style="margin-top:4px">Better was <b>'+moveText(e.best)+'</b> (win chance for '+NAME[e.player]+' '+pct(e.player===0?e.wpBeforeWhite:1-e.wpBeforeWhite)+'% instead of '+pct(e.player===0?e.wpWhite:1-e.wpWhite)+'%).</div>';
+  h+='<div class="wbar"><div style="width:'+w+'%"></div></div><div class="wl"><span>White '+w+'%</span><span>Black '+(100-w)+'%</span></div>';
+  return h;
 }
 function turningPoint(a){
   // eventual winner: actual winner, else whoever the final evaluation favours
@@ -852,15 +939,14 @@ function graphSvg(a,k){
 function renderAna(){
   var g=cur(), el=$('#v-ana'), a=analysisOf(g);
   var h='<h1>Analyze: '+esc(g.name)+'</h1>';
-  if(!g.moves.length){ el.innerHTML=h+'<div class="card">Record some moves first.</div>'; return; }
+  if(!g.moves.length){ el.innerHTML=h+'<div class="card">Make some moves first.</div>'; return; }
   if(ui.running){
     el.innerHTML=h+'<div class="card"><div id="progTxt">Analyzing…</div><div class="progress"><div id="bar"></div></div><p class="note">The engine searches every position and compares your move with the best one it can find.</p></div>';
     return;
   }
   if(!a){
-    h+='<div class="card"><p style="margin-top:0">'+g.moves.length+' moves recorded.</p><div class="row" style="margin-bottom:10px"><label for="depth" style="flex:none">Strength</label><select id="depth">'+
-      [[3,'Quick'],[4,'Normal'],[5,'Deep'],[6,'Very deep (slow)']].map(function(o){return '<option value="'+o[0]+'"'+(store.depth===o[0]?' selected':'')+'>'+o[1]+' (depth '+o[0]+')</option>';}).join('')+
-      '</select></div><button class="primary" id="run" style="width:100%">Analyze game</button></div>';
+    if(store.depthChosen){ runAnalysis(); return; }
+    h+='<div class="card"><p style="margin-top:0">'+g.moves.length+' moves recorded. Choose how deeply the engine searches. You only choose once; you can change it later at the bottom of this page.</p><div class="row" style="margin-bottom:10px"><label for="depth" style="flex:none">Strength</label><select id="depth">'+depthOptions(store.depth)+'</select></div><button class="primary" id="run" style="width:100%">Analyze game</button></div>';
     el.innerHTML=h; return;
   }
   var res=a.res, ent=res.entries, n=ent.length;
@@ -917,7 +1003,7 @@ function renderAna(){
   for(var i=0;i<n;i+=2){
     h+='<div class="mv"><div class="n">'+(i/2+1)+'.</div>'+mvBtn(ent[i],i+1,k)+(ent[i+1]?mvBtn(ent[i+1],i+2,k):'<div></div>')+'</div>';
   }
-  h+='<div class="row" style="margin-top:12px"><select id="depth2">'+[[3,'Quick'],[4,'Normal'],[5,'Deep'],[6,'Very deep']].map(function(o){return '<option value="'+o[0]+'"'+(a.depth===o[0]?' selected':'')+'>'+o[1]+' (depth '+o[0]+')</option>';}).join('')+'</select><button id="rerun">Re-analyze</button></div>';
+  h+='<h2>Analysis strength</h2><div class="row"><select id="depth2">'+depthOptions(a.depth)+'</select><button id="rerun">Re-analyze</button></div>';
   el.innerHTML=h;
   var sel=el.querySelector('.mv .sel');
 }
@@ -936,8 +1022,8 @@ function anaClicks(e){
   }
   var b=e.target.closest('button'); if(!b) return;
   if(b.dataset.ply){ ui.k=+b.dataset.ply; ui.view='after'; renderAna(); }
-  else if(b.id==='run'){ store.depth=+$('#depth').value; runAnalysis(); }
-  else if(b.id==='rerun'){ store.depth=+$('#depth2').value; cur().analysis=null; runAnalysis(); }
+  else if(b.id==='run'){ store.depth=+$('#depth').value; store.depthChosen=true; save(); runAnalysis(); }
+  else if(b.id==='rerun'){ store.depth=+$('#depth2').value; save(); cur().analysis=null; runAnalysis(); }
   else if(b.id==='prev'){ ui.k=Math.max(0,ui.k-1); ui.view='after'; renderAna(); }
   else if(b.id==='next'){ ui.k=Math.min(a.res.entries.length,ui.k+1); ui.view='after'; renderAna(); }
   else if(b.id==='toggleBest'){ ui.view=ui.view==='best'?'after':'best'; renderAna(); }
@@ -997,6 +1083,7 @@ load(); cur();
 document.querySelector('nav').addEventListener('click',function(e){ var b=e.target.closest('button'); if(b) openTab(b.dataset.tab); });
 $('#v-rec').addEventListener('click',recClicks);
 $('#v-ana').addEventListener('click',anaClicks);
+$('#v-rec').addEventListener('change',function(e){ if(e.target.id==='depthRec'){ store.depth=+e.target.value; save(); liveEnsure(); var lc=$('#liveCard'); if(lc) lc.innerHTML=liveHtml(); } });
 $('#v-games').addEventListener('click',gamesClicks);
 renderRec();
 })();

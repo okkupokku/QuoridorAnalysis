@@ -225,30 +225,45 @@ var Quor = (function () {
     return 'blunder';
   }
 
+  // Analysis of one move from position s (s is left unchanged). Returns the entry plus
+  // wpBeforeWhite: white's win chance in the position before the move, assuming best play.
+  function evalPly(s, moveStr, ply, depth) {
+    var limit = depth >= 4 ? 8 : 10;
+    var mv = parse(moveStr), p = s.turn;
+    var root = rootSearch(s, depth, limit);
+    var pv = playedValue(s, mv, depth, limit);
+    var bestVal = root.value, bestMove = root.move ? fmt(root.move) : moveStr;
+    if (pv >= bestVal) { bestVal = pv; bestMove = moveStr; }
+    var wpBefore = winProb(bestVal), wpAfter = winProb(pv), drop = wpBefore - wpAfter;
+    return {
+      ply: ply, player: p, move: moveStr, best: bestMove,
+      bestVal: bestVal, playedVal: pv, drop: drop,
+      cls: classify(drop, bestMove === moveStr),
+      wpWhite: p === 0 ? wpAfter : 1 - wpAfter,
+      wpBeforeWhite: p === 0 ? wpBefore : 1 - wpBefore
+    };
+  }
+
+  // Analyze just move number `ply` (0-based) of a game; used for live analysis.
+  function analyzePly(moves, ply, depth) {
+    var s = replay(moves, ply);
+    var e = evalPly(s, moves[ply], ply, depth || 3);
+    var after = replay(moves, ply + 1), w = winner(after);
+    if (w >= 0) e.wpWhite = w === 0 ? 1 : 0;
+    return e;
+  }
+
   // Full-game analysis. Returns one entry per ply plus the white win-probability series.
   function analyze(moves, depth, onProgress) {
     depth = depth || 3;
-    var limit = depth >= 4 ? 8 : 10;
     var s = newState(), entries = [], series = [];
     for (var i = 0; i < moves.length; i++) {
       if (onProgress) onProgress(i, moves.length);
-      var mv = parse(moves[i]), p = s.turn;
-      var root = rootSearch(s, depth, limit);
-      var pv = playedValue(s, mv, depth, limit);
-      var bestVal = root.value, bestMove = root.move ? fmt(root.move) : moves[i];
-      if (pv >= bestVal) { bestVal = pv; bestMove = moves[i]; }
-      var wpBefore = winProb(bestVal), wpAfter = winProb(pv);
-      var drop = wpBefore - wpAfter;
-      var isBest = bestMove === moves[i];
-      if (i === 0) series.push(p === 0 ? wpBefore : 1 - wpBefore);
-      entries.push({
-        ply: i, player: p, move: moves[i], best: bestMove,
-        bestVal: bestVal, playedVal: pv, drop: drop,
-        cls: classify(drop, isBest),
-        wpWhite: p === 0 ? wpAfter : 1 - wpAfter
-      });
-      series.push(entries[i].wpWhite);
-      doMove(s, mv);
+      var e = evalPly(s, moves[i], i, depth);
+      if (i === 0) series.push(e.wpBeforeWhite);
+      entries.push(e);
+      series.push(e.wpWhite);
+      doMove(s, parse(moves[i]));
     }
     var w = winner(s);
     if (w >= 0) series[series.length - 1] = w === 0 ? 1 : 0;
@@ -259,7 +274,7 @@ var Quor = (function () {
   return {
     LET: LET, newState: newState, clone: clone, blocked: blocked, pawnMoves: pawnMoves,
     wallProblem: wallProblem, doMove: doMove, undoMove: undoMove, fmt: fmt, parse: parse,
-    winner: winner, replay: replay, bfs: bfs, analyze: analyze, goalRow: goalRow
+    winner: winner, replay: replay, bfs: bfs, analyze: analyze, analyzePly: analyzePly, goalRow: goalRow
   };
 })();
 if (typeof module !== 'undefined') module.exports = Quor;
