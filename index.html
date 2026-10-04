@@ -47,7 +47,13 @@ svg.board{width:100%;height:auto;display:block;touch-action:manipulation;user-se
 .bw .bd{flex:1;min-width:0}
 .evcol{position:relative;width:24px;flex:none}
 .evbar{position:absolute;left:0;right:0;top:.7%;bottom:7.5%;border-radius:7px;overflow:hidden;background:#2b2a30;border:1px solid var(--line)}
-.evbar.dim{opacity:.55}
+.evbar.dim .f{opacity:.45}
+.evbar.dim::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,rgba(255,255,255,.28) 0 6px,transparent 6px 12px);background-size:17px 17px;animation:evload .6s linear infinite}
+@keyframes evload{to{background-position:0 17px}}
+@media (prefers-reduced-motion: reduce){.evbar.dim::after{animation:none}}
+.spin{display:inline-block;width:10px;height:10px;border:2px solid var(--mute);border-right-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-1px;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.spin{animation:none}}
 .evbar .f{position:absolute;left:0;right:0;background:#fbfaf6;transition:height .35s}
 .evbar span{position:absolute;left:0;right:0;text-align:center;font-size:10px;font-weight:700;line-height:1;color:#fff;mix-blend-mode:difference}
 .ctl{display:flex;gap:6px;margin-top:6px}
@@ -845,8 +851,8 @@ function ctxAna(res,k){
 }
 function evBarHtml(c){
   var w=Math.round(c.wp*100), f=ui.flip, o=store.opts;
-  return '<div class="evbar'+(c.pending?' dim':'')+'"><div class="f" style="'+(f?'top:0':'bottom:0')+';height:'+w+'%"></div>'+
-    (o.pct?'<span style="'+(f?'top':'bottom')+':3px">'+w+'</span><span style="'+(f?'bottom':'top')+':3px">'+(100-w)+'</span>':'')+'</div>';
+  return '<div class="evbar'+(c.pending?' dim':'')+'" title="'+(c.pending?'Analyzing…':'')+'"><div class="f" style="'+(f?'top:0':'bottom:0')+';height:'+w+'%"></div>'+
+    (o.pct&&!c.pending?'<span style="'+(f?'top':'bottom')+':3px">'+w+'</span><span style="'+(f?'bottom':'top')+':3px">'+(100-w)+'</span>':'')+'</div>';
 }
 function peekBtn(kind,label){
   var on=ui.peek===kind;
@@ -854,7 +860,7 @@ function peekBtn(kind,label){
 }
 function infoHtml(c){
   var o=store.opts, e=c.e, h='', w=Math.round(c.wp*100);
-  if(c.pending) h+='<div class="ln note">Analyzing…</div>';
+  if(c.pending) h+='<div class="ln note"><span class="spin"></span>'+(SIG.state==='loading'?'Loading the analysis engine (first time ~25 MB)…':'Analyzing…')+'</div>';
   else {
     var pctTxt=(!o.bar&&o.pct)?' <span class="note">White '+w+'% · Black '+(100-w)+'%</span>':'';
     if(e) h+='<div class="ln"><b>'+(Math.floor(e.ply/2)+1)+'. '+NAME[e.player]+' '+moveText(e.move)+'</b>'+(o.eval?' <span class="chipc c-'+e.cls+'">'+CLS_LABEL[e.cls]+'</span>':'')+pctTxt+'</div>';
@@ -873,6 +879,7 @@ function infoHtml(c){
   if(ui.peek==='prev') h+='<div class="ln note">Orange: played · Blue: better</div>';
   if(ui.peek==='next') h+='<div class="ln note">Blue: best next move</div>';
   if(o.speed) h+=speedHtml();
+  if(ui.engineNote) h+='<div class="ln note">'+ui.engineNote+'</div>';
   return h;
 }
 // What the board should show: current position, previous position with suggestion, or animation
@@ -1039,10 +1046,18 @@ function poolSize(){
 }
 function makeSigWorker(){
   var o={w:new Worker('sigma_worker.js'),state:'loading',job:null};
-  var fail=function(){ o.state='failed'; var j=o.job; o.job=null; if(o===SIG.main) SIG.state='failed'; if(j) j.fail(); };
+  var fail=function(){
+    if(o.state==='failed') return;
+    o.state='failed'; try{ o.w.terminate(); }catch(x){}
+    var j=o.job; o.job=null;
+    if(o===SIG.main){ SIG.state='failed'; ui.engineNote='The neural engine could not start here, so the built-in engine is used.'; }
+    if(j) j.fail();
+    if(o===SIG.main&&ui.tab==='rec') renderRec();
+  };
+  o.fail=fail;
   o.w.onmessage=function(e){
     var d=e.data;
-    if(d.type==='ready'){ o.state='ready'; if(o===SIG.main){ SIG.state='ready'; var pt=$('#progTxt'); if(pt&&/Loading/.test(pt.textContent)) pt.textContent='Analyzing…'; } return; }
+    if(d.type==='ready'){ o.state='ready'; if(o===SIG.main){ SIG.state='ready'; clearTimeout(SIG.timer); var pt=$('#progTxt'); if(pt&&/Loading/.test(pt.textContent)) pt.textContent='Analyzing…'; updateLive(); } return; }
     if(d.type==='failed'){ fail(); return; }
     var j=o.job; if(!j||d.gen!==j.gen) return;
     if(d.type==='progress') j.progress(d);
@@ -1054,7 +1069,9 @@ function makeSigWorker(){
 function sigStart(){
   if(SIG.state!=='idle') return;
   if(location.protocol==='file:'||typeof Worker==='undefined'){ SIG.state='failed'; return; }
-  try{ SIG.main=makeSigWorker(); SIG.pool=[SIG.main]; SIG.state='loading'; }catch(err){ SIG.state='failed'; }
+  try{ SIG.main=makeSigWorker(); SIG.pool=[SIG.main]; SIG.state='loading'; }catch(err){ SIG.state='failed'; return; }
+  // Give up on the network if it has not loaded within 90 s (slow connection or unsupported browser).
+  SIG.timer=setTimeout(function(){ if(SIG.state==='loading') SIG.main.fail(); },90000);
 }
 function runOn(o,kind,payload,h){
   if(o.job){ var p=o.job; o.job=null; if(p.cancel) p.cancel(); }
